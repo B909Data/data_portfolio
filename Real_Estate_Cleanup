@@ -1,0 +1,237 @@
+-- NASHEVILLE REAL EASTATE DATA CLEANING EXAMPLES
+----------------------------------------------------------------------
+
+-- REFORMAT DATES
+
+SELECT SaleDate
+FROM HW_Portfolio..NashevilleHousing
+
+Update hw_portfolio..NashevilleHousing
+SET SaleDate = CONVERT(Date,SaleDate)
+
+--- If Doesn't work
+
+SELECT SaleDateFormatted
+FROM HW_Portfolio..NashevilleHousing
+     
+ALTER TABLE hw_portfolio..NashevilleHousing
+Add SaleDateFormatted Date;
+
+UPDATE hw_portfolio..NashevilleHousing
+SET SaleDateFormatted = CONVERT(Date,SaleDate)
+
+ALTER TABLE hw_portfolio..NashevilleHousing
+DROP COLUMN SaleDate
+
+----------------------------------------------------------------------
+
+
+-- POPULATE PROPERTY ADDRESS DATA
+
+---- Common denominator to identify PRoperty address, Parcel ID
+SELECT *
+From HW_portfolio..NashevilleHousing
+--WHERE PropertyAddress is NULL
+ORder By ParcelID
+
+---- ISNULL to Create an example new column copying b.propertyAdress
+SELECT a.parcelID, a.PropertyAddress, b.parcelID, b.PropertyAddress, ISNULL(a.PropertyAddress, b.PropertyAddress) NewColumn
+From HW_portfolio..NashevilleHousing a
+JOIN HW_Portfolio..NashevilleHousing b
+	ON a.parcelID = b.parcelID AND a.uniqueID <> b.uniqueID
+WHERE a.PropertyAddress is NULL
+
+---- UPDATE and occupy a.PropertyAddress with data from New Column
+UPDATE a
+SET PropertyAddress = ISNULL(a.PropertyAddress, b.PropertyAddress)
+From HW_portfolio..NashevilleHousing a
+JOIN HW_Portfolio..NashevilleHousing b
+	ON a.parcelID = b.parcelID AND a.uniqueID <> b.uniqueID
+
+--SEPARATE ADDRESS INTO STREET, CITY, STATE COLUMNS
+------------------------------------------
+----METHOD 1 Substrings
+------------------------------------------
+
+
+
+SELECT  SUBSTRING(PropertyAddress, 1, CHARINDEX( ',', PropertyAddress)-1) StreetAddress,
+SUBSTRING(PropertyAddress, CHARINDEX( ',', PropertyAddress)+1, LEN(PropertyAddress)) City
+From HW_portfolio..NashevilleHousing
+
+ALTER TABLE HW_Portfolio..NAshevilleHousing
+Add PropertyStreetAddress Nvarchar(255);
+
+Update HW_Portfolio..NAshevilleHousing
+SET PropertyStreetAddress = SUBSTRING(PropertyAddress, 1, CHARINDEX( ',', PropertyAddress)-1)
+
+ALTER TABLE HW_Portfolio..NAshevilleHousing
+Add PropertyCityAddress Nvarchar(255);
+
+Update HW_Portfolio..NAshevilleHousing
+SET PropertyCityAddress = SUBSTRING(PropertyAddress, CHARINDEX( ',', PropertyAddress)+1, LEN(PropertyAddress))
+
+SELECT*
+FROM HW_Portfolio..NashevilleHousing
+
+
+
+------------------------------------------
+---METHOD 2 ParseName
+------------------------------------------
+
+SELECT
+PARSENAME (REPLACE (OwnerAddress, ',', '.'),3) as OwnerStreet,
+PARSENAME (REPLACE (OwnerAddress, ',', '.'),2) as OwnerCity,
+PARSENAME (REPLACE (OwnerAddress, ',', '.'),1) as OwnerState
+FROM HW_Portfolio..NashevilleHousing
+
+
+ALTER TABLE HW_Portfolio..NAshevilleHousing
+Add OwnerStreet Nvarchar(255);
+
+Update HW_Portfolio..NAshevilleHousing
+SET OwnerStreet = PARSENAME (REPLACE (OwnerAddress, ',', '.'),3)
+
+ALTER TABLE HW_Portfolio..NAshevilleHousing
+Add OwnerCity Nvarchar(255);
+
+Update HW_Portfolio..NAshevilleHousing
+SET OwnerCity = PARSENAME (REPLACE (OwnerAddress, ',', '.'),2)
+
+ALTER TABLE HW_Portfolio..NAshevilleHousing
+Add OwnerState Nvarchar(255);
+
+Update HW_Portfolio..NAshevilleHousing
+SET OwnerState = PARSENAME (REPLACE (OwnerAddress, ',', '.'),1)
+
+
+SELECT*
+FROM HW_Portfolio..NAshevilleHousing
+
+
+
+-- CHANGE 'Y' AND 'N' TO YES/NO IN 'SOLD AS VACANT FIELD
+
+SELECT DISTINCT SoldAsVacant, COUNT(SoldAsVacant) CountofYesNos
+FROM HW_Portfolio..NAshevilleHousing
+GROUP BY SoldasVacant
+ORDER BY 2
+
+SELECT SoldAsVacant,
+CASE	WHEN SoldAsVacant = 'N' THEN 'No'
+		WHEN SoldAsVacant = 'Y' THEN 'Yes'
+		ELSE SoldAsVacant
+		END
+FROM HW_Portfolio..NAshevilleHousing
+
+UPDATE HW_Portfolio..NAshevilleHousing
+SET SoldAsVacant = 
+CASE	WHEN SoldAsVacant = 'N' THEN 'No'
+		WHEN SoldAsVacant = 'Y' THEN 'Yes'
+		ELSE SoldAsVacant
+		END
+
+
+-- REMOVE DUPLICATES
+
+WITH Row_NumCTE as (
+Select *,
+	ROW_NUMBER () OVER (PARTITION BY 
+	ParcelID, PropertyAddress, SalePrice, SaleDate, LegalReference ORDER BY UniqueID) Row_Num
+	FROM HW_Portfolio..NashevilleHousing)
+	--ORDER BY ParcelID)
+
+DELETE
+FROM Row_NumCTE
+Where Row_Num > 1 
+--Order by PropertyAddress
+
+
+--TEST
+SELECT *
+FROM Row_NumCTE
+Where Row_Num > 1 
+Order by PropertyAddress
+
+
+-- DELETE UNUSED COLUMNS
+
+Select *
+FROM HW_Portfolio..NAshevilleHousing
+
+ALTER TABLE HW_Portfolio..NashevilleHousing
+DROP COLUMN PropertyAddress, OwnerAddress, TaxDistrict, SaleDate
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+-----------------------------------------------------------------------------------------------
+-----------------------------------------------------------------------------------------------
+
+--- Importing Data using OPENROWSET and BULK INSERT	
+
+--  More advanced and looks cooler, but have to configure server appropriately to do correctly
+--  Wanted to provide this in case you wanted to try it
+
+
+--sp_configure 'show advanced options', 1;
+--RECONFIGURE;
+--GO
+--sp_configure 'Ad Hoc Distributed Queries', 1;
+--RECONFIGURE;
+--GO
+
+
+--USE PortfolioProject 
+
+--GO 
+
+--EXEC master.dbo.sp_MSset_oledb_prop N'Microsoft.ACE.OLEDB.12.0', N'AllowInProcess', 1 
+
+--GO 
+
+--EXEC master.dbo.sp_MSset_oledb_prop N'Microsoft.ACE.OLEDB.12.0', N'DynamicParameters', 1 
+
+--GO 
+
+
+---- Using BULK INSERT
+
+--USE PortfolioProject;
+--GO
+--BULK INSERT nashvilleHousing FROM 'C:\Temp\SQL Server Management Studio\Nashville Housing Data for Data Cleaning Project.csv'
+--   WITH (
+--      FIELDTERMINATOR = ',',
+--      ROWTERMINATOR = '\n'
+--);
+--GO
+
+
+---- Using OPENROWSET
+--USE PortfolioProject;
+--GO
+--SELECT * INTO nashvilleHousing
+--FROM OPENROWSET('Microsoft.ACE.OLEDB.12.0',
+--    'Excel 12.0; Database=C:\Users\alexf\OneDrive\Documents\SQL Server Management Studio\Nashville Housing Data for Data Cleaning Project.csv', [Sheet1$]);
+--GO
+
+
+
+
+
+
+
+
