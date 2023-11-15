@@ -1,0 +1,88 @@
+SELECT * 
+FROM sales_data_sample
+
+---- Inspecting distinct values
+
+SELECT DISTINCT Status FROM HW_Portfolio..sales_data_sample
+SELECT DISTINCT ProductCode FROM HW_Portfolio..sales_data_sample
+SELECT DISTINCT ProductLine FROM HW_Portfolio..sales_data_sample
+SELECT DISTINCT DealSize FROM HW_Portfolio..sales_data_sample
+SELECT DISTINCT Year_ID FROM HW_Portfolio..sales_data_sample
+SELECT DISTINCT Country FROM HW_Portfolio..sales_data_sample
+SELECT DISTINCT Territory FROM HW_Portfolio..sales_data_sample
+
+-- Sales Analysis
+-- Top Selling Vehicles
+SELECT ProductLine, Sum(QuantityOrdered) TotalQuantity, Sum(sales) Revenue
+FROM HW_Portfolio..sales_data_sample
+Group by ProductLine 
+Order by 2 Desc,3 Desc
+
+--Top Selling Year
+SELECT Year_ID, Sum(QuantityOrdered) TotalQuantity, Sum(sales) Revenue
+FROM HW_Portfolio..sales_data_sample
+Group by Year_ID 
+Order by 2 Desc,3 Desc
+
+--Why were sales slim in 2005
+SELECT DISTINCT Month_ID 
+FROM HW_Portfolio..sales_data_sample
+Where Year_ID = 2005
+
+--Top Selling Deals
+SELECT DealSize, Sum(sales) Revenue
+FROM HW_Portfolio..sales_data_sample
+Group by DealSize
+Order by 2 Desc
+
+-- TOp Selling Months of 2005
+SELECT Month_ID, Sum(sales) Revenue, COUNT(OrderNumber) NumberofOrders
+FROM HW_Portfolio..sales_data_sample
+Where Year_ID = 2004
+Group By Month_ID
+Order By 2 Desc
+
+--- TOp Selling PRoducts in Nov 2004 
+SELECT Month_ID, ProductLine, Sum(sales) Revenue, COUNT(OrderNumber) NumberofOrders
+FROM HW_Portfolio..sales_data_sample
+Where Year_ID = 2004 AND Month_ID = 11
+Group By Month_ID, ProductLine
+Order By 3 Desc
+
+--- Customer Analysis 
+DROP TABLE IF EXISTS #rfm
+WITH RFM as (
+	select 
+			CUSTOMERNAME, 
+			sum(sales) MonetaryValue,
+			avg(sales) AvgMonetaryValue,
+			count(ORDERNUMBER) Frequency,
+			max(ORDERDATE) last_order_date,
+			(Select MAX(Orderdate)  FROM HW_Portfolio..sales_data_sample) MaxOrderDate,
+			DATEDIFF(DD, max(ORDERDATE),(Select MAX(Orderdate)  FROM HW_Portfolio..sales_data_sample)) DaysFromLastPurchase
+	FROM HW_Portfolio..sales_data_sample
+	GROUP BY CUSTOMERNAME
+	),
+RFM_calc as
+(
+	Select r.*,
+			NTILE(4) OVER (order by last_order_date desc) rfm_recency,
+			NTILE(4) OVER (order by Frequency) rfm_frequency,
+			NTILE(4) OVER (order by MonetaryValue) rfm_monetary
+	FROM RFM r
+	)
+Select calc.*,cast(rfm_recency as varchar) + cast(rfm_frequency as varchar) + cast(rfm_monetary  as varchar)rfm_cell_string
+into #rfm
+FROM rfm_calc calc
+
+select CUSTOMERNAME , rfm_recency, rfm_frequency, rfm_monetary,
+	case 
+		when rfm_cell_string in (111, 112 , 121, 122, 123, 132, 211, 212, 114, 141) then 'lost_customers'  --lost customers
+		when rfm_cell_string in (133, 134, 143, 244, 232, 334, 343, 344, 144) then 'slipping away, cannot lose' -- (Big spenders who haven’t purchased lately)
+		when rfm_cell_string in (311, 411, 421, 412, 312, 331) then 'new customers'
+		when rfm_cell_string in (222, 223, 233, 322) then 'potential churners'
+		when rfm_cell_string in (323, 333,321, 422, 423, 332, 432) then 'active' --(Customers who buy often & recently, but at low price points)
+		when rfm_cell_string in (433, 434, 443, 444) then 'loyal'
+	end rfm_segment
+FROM #rfm
+
